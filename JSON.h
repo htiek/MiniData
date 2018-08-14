@@ -50,6 +50,8 @@ public:
     class key_iterator;
     key_iterator begin() const;
     key_iterator end() const;
+    
+    friend std::ostream& operator<< (std::ostream& out, JSON json);
 
 private:
     friend class BaseJSON;
@@ -57,7 +59,5 @@ private:
 
     JSON(std::shared_ptr<class BaseJSON> impl);
 };
-
-std::ostream& operator<< (std::ostream& out, JSON json);
 
 #endif

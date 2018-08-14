@@ -6,6 +6,7 @@
 #include <typeinfo>
 #include <iomanip>
 #include <string>
+#include <iterator>
 using namespace std;
 
 /* Base internal type for JSON objects. */
@@ -17,7 +18,7 @@ public:
     JSON::Type type() const;
 
     /* Outputs this object to a stream. */
-    // virtual void print(ostream& out) const = 0;
+    virtual void print(ostream& out) const = 0;
 
     /* Utility function to construct a new JSON object from a type and a list of
      * arguments. This is provided because BaseJSON is a friend of JSON and therefore
@@ -40,6 +41,8 @@ class NullJSON: public BaseJSON {
 public:
     NullJSON(nullptr_t value);
     nullptr_t value() const;
+    
+    void print(ostream& out) const override;
 };
 
 /* Type representing a boolean. */
@@ -47,6 +50,8 @@ class BoolJSON: public BaseJSON {
 public:
     BoolJSON(bool value);
     bool value() const;
+    
+    void print(ostream& out) const override;
 
 private:
     bool mValue;
@@ -56,8 +61,9 @@ private:
 class NumberJSON: public BaseJSON {
 public:
     NumberJSON(double value);
-
     double value() const;
+    
+    void print(ostream& out) const override;
 
 private:
     double mValue;
@@ -67,8 +73,9 @@ private:
 class StringJSON: public BaseJSON {
 public:
     StringJSON(const string& value);
-
     string value() const;
+    
+    void print(ostream& out) const override;
 
 private:
     string mValue;
@@ -89,6 +96,8 @@ public:
 
     size_t size() const override;
     JSON operator[] (size_t index) const;
+    
+    void print(ostream& out) const override;
 
 private:
     vector<JSON> mElems;
@@ -102,6 +111,8 @@ public:
     bool contains(const string& key) const;
     JSON operator[] (const string& key) const;
     size_t size() const override;
+    
+    void print(ostream& out) const override;
 
 private:
     unordered_map<string, JSON> mElems;
@@ -110,6 +121,32 @@ private:
 /***************************************************************************/
 /***********        Implementation of individual subtypes        ***********/
 /***************************************************************************/
+
+namespace {
+    /* Utility printing routine to output a string. */
+    void printString(ostream& out, const string& str) {
+        out << '"';
+    
+        /* Print out each character. Anything below 0x20 is escaped. Everything else is printed
+         * using only the one-byte UTF-8 characters.
+         *
+         * TODO: Unicode support?
+         */
+        for (char ch: str) {
+            if      (ch == '"')  out << "\\\"";
+            else if (ch == '\\') out << "\\\\";
+            else if (ch == '/')  out << "\\/";
+            else if (ch == '\b') out << "\\b";
+            else if (ch == '\n') out << "\\n";
+            else if (ch == '\r') out << "\\r";
+            else if (ch == '\t') out << "\\t";
+            else out << ch; // TODO: Handle unicode!
+        }
+        
+        out << '"';
+    }
+}
+
 BaseJSON::BaseJSON(JSON::Type type) : mType(type) {
 
 }
@@ -125,12 +162,20 @@ nullptr_t NullJSON::value() const {
     return nullptr;
 }
 
+void NullJSON::print(ostream& out) const {
+    out << "null";
+}
+
 StringJSON::StringJSON(const string& value) : BaseJSON(JSON::Type::STRING), mValue(value) {
 
 }
 
 string StringJSON::value() const {
     return mValue;
+}
+
+void StringJSON::print(ostream& out) const {
+    printString(out, mValue);
 }
 
 NumberJSON::NumberJSON(double value) : BaseJSON(JSON::Type::NUMBER), mValue(value) {
@@ -141,12 +186,20 @@ double NumberJSON::value() const {
     return mValue;
 }
 
+void NumberJSON::print(ostream& out) const {
+    out << mValue;
+}
+
 BoolJSON::BoolJSON(bool value) : BaseJSON(JSON::Type::BOOLEAN), mValue(value) {
 
 }
 
 bool BoolJSON::value() const {
     return mValue;
+}
+
+void BoolJSON::print(ostream& out) const {
+    out << (mValue? "true" : "false");
 }
 
 SizedJSON::SizedJSON(JSON::Type type) : BaseJSON(type) {
@@ -168,6 +221,14 @@ JSON ArrayJSON::operator[] (size_t index) const {
     return mElems[index];
 }
 
+void ArrayJSON::print(ostream& out) const {
+    out << '[';
+    for (size_t i = 0; i < mElems.size(); i++) {
+        out << mElems[i] << (i + 1 == mElems.size()? "" : ",");
+    }
+    out << ']';
+}
+
 ObjectJSON::ObjectJSON(const unordered_map<string, JSON>& elems) : SizedJSON(JSON::Type::OBJECT), mElems(elems) {
 
 }
@@ -185,6 +246,18 @@ JSON ObjectJSON::operator[](const string& key) const {
 
 size_t ObjectJSON::size() const {
     return mElems.size();
+}
+
+void ObjectJSON::print(ostream& out) const {
+    out << '{';
+    for (auto itr = mElems.begin(); itr != mElems.end(); ++itr) {
+        printString(out, itr->first);
+        out << ":" << itr->second;
+        if (next(itr) != mElems.end()) {
+            out << ",";
+        }
+    }
+    out << '}';
 }
 
 
@@ -237,6 +310,10 @@ bool JSON::contains(const string& key) const {
     return as<ObjectJSON>(mImpl)->contains(key);
 }
 
+ostream& operator<< (ostream& out, JSON json) {
+    json.mImpl->print(out);
+    return out;
+}
 
 /***************************************************************************/
 /***********         Implementation of parsing routines          ***********/
