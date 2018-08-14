@@ -20,20 +20,27 @@ public:
     /* Outputs this object to a stream. */
     virtual void print(ostream& out) const = 0;
 
-    /* Utility function to construct a new JSON object from a type and a list of
-     * arguments. This is provided because BaseJSON is a friend of JSON and therefore
-     * has access to its constructor.
-     */
-    template <typename Type, typename... Args>
-    static JSON make(Args&&... args) {
-        return JSON(make_shared<Type>(forward<Args>(args)...));
-    }
-
 protected:
     BaseJSON(JSON::Type type);
 
 private:
     JSON::Type mType;
+};
+
+/* Iterator support. This generator type is used to produce elements as a stream. */
+class JSONSource {
+public:
+    virtual ~JSONSource() = default;
+    
+    virtual void advance() = 0;
+    virtual bool finished() const = 0;
+    
+    virtual const JSON& current() const = 0;
+    
+    /* Constructs a const_iterator from a shared_ptr. */
+    static JSON::const_iterator make(shared_ptr<JSONSource> impl) {
+        return impl;
+    }
 };
 
 /* Type representing null. */
@@ -81,16 +88,17 @@ private:
     string mValue;
 };
 
-/* Intermediate type representing something with a size. */
-class SizedJSON: public BaseJSON {
+/* Intermediate type representing something that can be iterated over. */
+class IterableJSON: public BaseJSON {
 public:
-    SizedJSON(JSON::Type type);
+    IterableJSON(JSON::Type type);
 
     virtual size_t size() const = 0;
+    virtual shared_ptr<JSONSource> source() const = 0;
 };
 
 /* Type representing an array. */
-class ArrayJSON: public SizedJSON {
+class ArrayJSON: public IterableJSON {
 public:
     ArrayJSON(const vector<JSON>& elems);
 
@@ -98,13 +106,14 @@ public:
     JSON operator[] (size_t index) const;
     
     void print(ostream& out) const override;
+    shared_ptr<JSONSource> source() const override;
 
 private:
     vector<JSON> mElems;
 };
 
 /* Type representing an object. */
-class ObjectJSON: public SizedJSON {
+class ObjectJSON: public IterableJSON {
 public:
     ObjectJSON(const unordered_map<string, JSON>& elems);
 
@@ -113,6 +122,7 @@ public:
     size_t size() const override;
     
     void print(ostream& out) const override;
+    shared_ptr<JSONSource> source() const override;
 
 private:
     unordered_map<string, JSON> mElems;
@@ -202,16 +212,43 @@ void BoolJSON::print(ostream& out) const {
     out << (mValue? "true" : "false");
 }
 
-SizedJSON::SizedJSON(JSON::Type type) : BaseJSON(type) {
+IterableJSON::IterableJSON(JSON::Type type) : BaseJSON(type) {
 
 }
 
-ArrayJSON::ArrayJSON(const vector<JSON>& elems) : SizedJSON(JSON::Type::ARRAY), mElems(elems) {
+ArrayJSON::ArrayJSON(const vector<JSON>& elems) : IterableJSON(JSON::Type::ARRAY), mElems(elems) {
 
 }
 
 size_t ArrayJSON::size() const {
     return mElems.size();
+}
+
+shared_ptr<JSONSource> ArrayJSON::source() const {
+    /* Source just wraps a pair of iterators. */
+    class VectorJSONSource: public JSONSource {
+    public:
+        VectorJSONSource(vector<JSON>::const_iterator curr, vector<JSON>::const_iterator end)
+          : mCurr(curr), mEnd(end) {
+          
+        }
+        
+        void advance() override {
+            ++mCurr;
+        }
+        bool finished() const override {
+            return mCurr == mEnd;
+        }
+    
+        const JSON& current() const override {
+            return *mCurr;
+        }
+    
+    private:
+        vector<JSON>::const_iterator mCurr, mEnd;
+    };
+    
+    return make_shared<VectorJSONSource>(mElems.begin(), mElems.end());
 }
 
 JSON ArrayJSON::operator[] (size_t index) const {
@@ -229,7 +266,7 @@ void ArrayJSON::print(ostream& out) const {
     out << ']';
 }
 
-ObjectJSON::ObjectJSON(const unordered_map<string, JSON>& elems) : SizedJSON(JSON::Type::OBJECT), mElems(elems) {
+ObjectJSON::ObjectJSON(const unordered_map<string, JSON>& elems) : IterableJSON(JSON::Type::OBJECT), mElems(elems) {
 
 }
 
@@ -260,7 +297,41 @@ void ObjectJSON::print(ostream& out) const {
     out << '}';
 }
 
-
+shared_ptr<JSONSource> ObjectJSON::source() const {
+    /* Source wraps a pair of iterators and stores a JSON object representing the
+     * current string.
+     */
+    class MapJSONSource: public JSONSource {
+    public:
+        MapJSONSource(unordered_map<string, JSON>::const_iterator curr,
+                      unordered_map<string, JSON>::const_iterator end)
+          : mCurr(curr), mEnd(end), mStaged(nullptr) {
+            if (mCurr != mEnd) {
+                mStaged = JSON(mCurr->first);
+            }
+        }
+        
+        void advance() override {
+            ++mCurr;
+            if (mCurr != mEnd) {
+                mStaged = JSON(mCurr->first);
+            }
+        }
+        bool finished() const override {
+            return mCurr == mEnd;
+        }
+    
+        const JSON& current() const override {
+            return mStaged;
+        }
+    
+    private:
+        unordered_map<string, JSON>::const_iterator mCurr, mEnd;
+        JSON mStaged;
+    };
+    
+    return make_shared<MapJSONSource>(mElems.begin(), mElems.end());
+}
 
 /***************************************************************************/
 /***********          Implementation of JSON accessors           ***********/
@@ -301,7 +372,7 @@ JSON JSON::operator [](size_t index) const {
     return (*as<ArrayJSON>(mImpl))[index];
 }
 size_t JSON::size() const {
-    return as<SizedJSON>(mImpl)->size();
+    return as<IterableJSON>(mImpl)->size();
 }
 JSON JSON::operator [](const string& key) const {
     return (*as<ObjectJSON>(mImpl))[key];
@@ -310,9 +381,99 @@ bool JSON::contains(const string& key) const {
     return as<ObjectJSON>(mImpl)->contains(key);
 }
 
+JSON JSON::operator [](JSON key) const {
+    /* Forward as appropriate. */
+    if (key.type() == JSON::Type::NUMBER) return (*this)[key.asNumber()];
+    if (key.type() == JSON::Type::STRING) return (*this)[key.asString()];
+    
+    error("Cannot use this JSON object as a key.");
+    abort();
+}
+
 ostream& operator<< (ostream& out, JSON json) {
     json.mImpl->print(out);
     return out;
+}
+
+/***************************************************************************/
+/***********       Implementation of JSON::const_iterator        ***********/
+/***************************************************************************/
+JSON::const_iterator::const_iterator() {
+    // Leave mImpl uninitialized
+}
+JSON::const_iterator::const_iterator(shared_ptr<JSONSource> source) : mImpl(source) {
+
+}
+JSON::JSON(nullptr_t) : mImpl(make_shared<NullJSON>(nullptr)) {
+
+}
+JSON::JSON(bool value) : mImpl(make_shared<BoolJSON>(value)) {
+
+}
+JSON::JSON(double value) : mImpl(make_shared<NumberJSON>(value)) {
+
+}
+JSON::JSON(const string& value) : mImpl(make_shared<StringJSON>(value)) {
+
+}
+JSON::JSON(const vector<JSON>& elems) : mImpl(make_shared<ArrayJSON>(elems)) {
+
+}
+JSON::JSON(const unordered_map<string, JSON>& elems) : mImpl(make_shared<ObjectJSON>(elems)) {
+
+}
+
+/* We support a minimal equality comparison that makes any iterator compare equal to itself
+ * and any two iterators at the end of the range compare equal.
+ */
+bool JSON::const_iterator::operator== (const_iterator rhs) const {
+    /* Case 1: Both iterators are null. */
+    if (!mImpl && !rhs.mImpl) return true;
+    
+    /* Case 2: We're null, they aren't. */
+    else if (!mImpl) return rhs.mImpl->finished();
+    
+    /* Case 3: They're null, we aren't. */
+    else if (!rhs.mImpl) return mImpl->finished();
+    
+    /* Case 4: Neither is null. */
+    return mImpl == rhs.mImpl;
+}
+
+bool JSON::const_iterator::operator!= (const_iterator rhs) const {
+    return !(*this == rhs);
+}
+    
+JSON::const_iterator& JSON::const_iterator::operator++ () {
+    mImpl->advance();
+    return *this;
+}
+
+const JSON::const_iterator JSON::const_iterator::operator++ (int) {
+    auto result = *this;
+    ++*this;
+    return result;
+}
+
+const JSON& JSON::const_iterator::operator* () const {
+    return mImpl->current();
+}
+    
+const JSON* JSON::const_iterator::operator-> () const {
+    return &**this;
+}
+
+JSON::const_iterator JSON::begin() const {
+    return JSONSource::make(as<IterableJSON>(mImpl)->source());
+}
+JSON::const_iterator JSON::end() const {
+    return {};
+}
+JSON::const_iterator JSON::cbegin() const {
+    return begin();
+}
+JSON::const_iterator JSON::cend() const {
+    return end();
 }
 
 /***************************************************************************/
@@ -482,10 +643,10 @@ namespace {
 
         if (next == '{') return readObject(input);
         if (next == '[') return readArray(input);
-        if (next == '"') return BaseJSON::make<StringJSON>(readString(input));
-        if (next == '-' || isdigit(next)) return BaseJSON::make<NumberJSON>(readNumber(input));
-        if (next == 't' || next == 'f') return BaseJSON::make<BoolJSON>(readBoolean(input));
-        if (next == 'n') return BaseJSON::make<NullJSON>(readNull(input));
+        if (next == '"') return JSON(readString(input));
+        if (next == '-' || isdigit(next)) return JSON(readNumber(input));
+        if (next == 't' || next == 'f') return JSON(readBoolean(input));
+        if (next == 'n') return JSON(readNull(input));
 
         parseError("Not sure how to handle value starting with character " + string(1, next));
     }
@@ -543,7 +704,7 @@ namespace {
         /* Edge case: This could be an empty array. */
         if (peek(input) == ']') {
             get(input); // Consume ']'
-            return BaseJSON::make<ArrayJSON>(elems);
+            return JSON(elems);
         }
 
         /* Otherwise, it's a nonempty list. */
@@ -554,7 +715,7 @@ namespace {
              * on a close bracket and continue on a comma.
              */
             char next = get(input);
-            if (next == ']') return BaseJSON::make<ArrayJSON>(elems);
+            if (next == ']') return JSON(elems);
             if (next != ',') parseError("Expected , or ], got " + string(1, next));
         }
     }
@@ -567,7 +728,7 @@ namespace {
         /* Edge case: This could be an empty object. */
         if (peek(input) == '}') {
             get(input); // Consume ']'
-            return BaseJSON::make<ObjectJSON>(elems);
+            return JSON(elems);
         }
 
         /* Otherwise, it's a nonempty list. */
@@ -579,7 +740,7 @@ namespace {
              * on a close brace and continue on a comma.
              */
             char next = get(input);
-            if (next == '}') return BaseJSON::make<ObjectJSON>(elems);
+            if (next == '}') return JSON(elems);
             if (next != ',') parseError("Expected , or }, got " + string(1, next));
         }
     }
