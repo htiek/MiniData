@@ -77,18 +77,24 @@ private:
 /* Type representing some form of numeric quantity. */
 class NumberJSON: public BaseJSON {
 public:
-    NumberJSON(const string& value);
+    NumberJSON();
 
-    double  asDouble() const;
-    int64_t asInteger() const;
+    virtual double  asDouble() const  = 0;
+    virtual int64_t asInteger() const = 0;
+};
+
+/* Specializations of numbers for integers and doubles. */
+template <typename NumericType> class NumericValueJSON: public NumberJSON {
+public:
+    NumericValueJSON(NumericType value);
+    
+    double  asDouble()  const override;
+    int64_t asInteger() const override;
 
     void print(ostream& out) const override;
-
+    
 private:
-    /* We will represent the underlying number as a string. The client can
-     * then tell us what to do with it.
-     */
-    string mValue;
+    NumericType mValue;
 };
 
 /* Type representing a string. */
@@ -203,34 +209,27 @@ void StringJSON::print(ostream& out) const {
     printString(out, mValue);
 }
 
-NumberJSON::NumberJSON(const string& value) : BaseJSON(JSON::Type::NUMBER), mValue(value) {
+NumberJSON::NumberJSON() : BaseJSON(JSON::Type::NUMBER) {
 
 }
 
-double NumberJSON::asDouble() const {
-    istringstream extractor(mValue);
-    double result;
-    extractor >> result;
+template <typename NumericType>
+NumericValueJSON<NumericType>::NumericValueJSON(NumericType value) : mValue(value) {
 
-    return result;
-}
-int64_t NumberJSON::asInteger() const {
-    /* If the text in question contains a decimal point or exponent, then we have to
-     * route it through a double.
-     */
-    if (mValue.find_first_of(".Ee") != string::npos) {
-        return asDouble();
-    }
-
-    /* Otherwise, we can just read off the value as-is. */
-    istringstream extractor(mValue);
-    int64_t result;
-    extractor >> result;
-
-    return result;
 }
 
-void NumberJSON::print(ostream& out) const {
+template <typename NumericType>
+double NumericValueJSON<NumericType>::asDouble() const {
+    return static_cast<double>(mValue);
+}
+
+template <typename NumericType>
+int64_t NumericValueJSON<NumericType>::asInteger() const {
+    return static_cast<int64_t>(mValue);
+}
+
+template <typename NumericType>
+void NumericValueJSON<NumericType>::print(ostream& out) const {
     out << mValue;
 }
 
@@ -447,10 +446,10 @@ JSON::JSON(nullptr_t) : mImpl(make_shared<NullJSON>(nullptr)) {
 JSON::JSON(bool value) : mImpl(make_shared<BoolJSON>(value)) {
 
 }
-JSON::JSON(double value) : mImpl(make_shared<NumberJSON>(to_string(value))) {
+JSON::JSON(double value) : mImpl(make_shared<NumericValueJSON<double>>(value)) {
 
 }
-JSON::JSON(int64_t value) : mImpl(make_shared<NumberJSON>(to_string(value))) {
+JSON::JSON(int64_t value) : mImpl(make_shared<NumericValueJSON<int64_t>>(value)) {
 
 }
 JSON::JSON(const string& value) : mImpl(make_shared<StringJSON>(value)) {
@@ -647,13 +646,47 @@ namespace {
 
         return result.str();
     }
+    
+    /* Attempts to parse a string into a numeric format of some sort. On success, returns
+     * true. On failure, returns false and does not modify the outparameter.
+     */
+    template <typename T> bool parseValue(const string& str, T& result) {
+        /* Try reading a value, failing if we can't even do that. */
+        istringstream extractor(str);
+        T readValue;
+        
+        if (extractor >> readValue, !extractor) return false;
+        
+        /* See if there's anything left over. */
+        char leftover;
+        if (extractor >> leftover) return false;
+        
+        result = readValue;
+        return true;
+    }
 
     JSON readNumber(istream& input) {
         auto intPart  = readInt(input);
         auto fracPart = readFrac(input);
         auto expPart  = readExp(input);
-
-        return BaseJSON::make<NumberJSON>(intPart + fracPart + expPart);
+        
+        /* Assemble the string comprising the number. */
+        string numericString = intPart + fracPart + expPart;
+        
+        /* Attempt to assemble this as an integer first. */
+        int64_t integerValue;
+        if (parseValue(numericString, integerValue)) {
+            return BaseJSON::make<NumericValueJSON<int64_t>>(integerValue);
+        }
+        
+        /* Otherwise, try doing it as a double. */
+        double doubleValue;
+        if (parseValue(numericString, doubleValue)) {
+            return BaseJSON::make<NumericValueJSON<double>>(doubleValue);
+        }
+        
+        /* Otherwise, give up! */
+        parseError("Cannot parse number " + numericString + " as either an integer or a double.");
     }
 
     JSON readValue(istream& input) {
