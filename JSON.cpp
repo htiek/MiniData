@@ -1,4 +1,5 @@
 #include "JSON.h"
+#include "Unicode.h"
 #include "error.h"
 #include <unordered_map>
 #include <vector>
@@ -137,12 +138,11 @@ namespace {
     void printString(ostream& out, const string& str) {
         out << '"';
     
-        /* Print out each character. Anything below 0x20 is escaped. Everything else is printed
-         * using only the one-byte UTF-8 characters.
-         *
-         * TODO: Unicode support?
-         */
-        for (char ch: str) {
+        istringstream extractor(str);
+        while (extractor.peek() != EOF) {
+            char32_t ch = readChar(extractor);
+            
+            /* See how we need to encode this character. */
             if      (ch == '"')  out << "\\\"";
             else if (ch == '\\') out << "\\\\";
             else if (ch == '/')  out << "\\/";
@@ -150,7 +150,8 @@ namespace {
             else if (ch == '\n') out << "\\n";
             else if (ch == '\r') out << "\\r";
             else if (ch == '\t') out << "\\t";
-            else out << ch; // TODO: Handle unicode!
+            else if (ch >= 0x20 && ch <= 0x7F) out << char(ch);
+            else out << utf16EscapeFor(ch);
         }
         
         out << '"';
@@ -499,26 +500,10 @@ namespace {
         abort();
     }
 
-    /* Utility function to peek at the next character of input. */
-    char peek(istream& input) {
-        int result = input.peek();
-        if (result == EOF) parseError("Unexpected end of input.");
-
-        return char(result);
-    }
-
-    /* Utility function to read the next character of input. */
-    char get(istream& input) {
-        char result;
-        if (!input.get(result)) parseError("Unexpected end of input.");
-
-        return result;
-    }
-
     /* Utility function to confirm the next character matches a specific value. */
-    void expect(istream& input, char ch) {
-        char found = get(input);
-        if (found != ch) parseError("Expected " + string(1, ch) + ", got " + string(1, found));
+    void expect(istream& input, char32_t ch) {
+        char32_t found = readChar(input);
+        if (found != ch) parseError("Expected " + toUTF8(ch) + ", got " + toUTF8(found));
     }
     void expect(istream& input, const string& str) {
         for (char ch: str) {
@@ -541,34 +526,38 @@ namespace {
     }
 
     bool readBoolean(istream& input) {
-        if (peek(input) == 't') {
+        if (peekChar(input) == 't') {
             expect(input, "true");
             return true;
-        } else if (peek(input) == 'f') {
+        } else if (peekChar(input) == 'f') {
             expect(input, "false");
             return false;
         } else {
-            parseError("Can't parse a boolean starting with " + string(1, peek(input)));
+            parseError("Can't parse a boolean starting with " + toUTF8(peekChar(input)));
         }
+    }
+    
+    bool isDigit(char32_t ch) {
+        return ch >= '0' && ch <= '9';
     }
 
     string readDigits(istream& input) {
         ostringstream result;
 
         /* There must be at least one digit. */
-        char digit = get(input);
-        if (!isdigit(digit)) {
+        char32_t digit = readChar(input);
+        if (!isDigit(digit)) {
             parseError("Expected a digit, got " + string(1, digit));
         }
 
-        result << digit;
+        result << toUTF8(digit);
 
         /* If that digit was a zero, we're done. Otherwise, keep reading characters until
          * we hit something that isn't a digit.
          */
         if (digit != '0') {
-            while (isdigit(peek(input))) {
-                result << get(input);
+            while (isDigit(peekChar(input))) {
+                result << toUTF8(readChar(input));
             }
         }
 
@@ -579,8 +568,8 @@ namespace {
         ostringstream result;
 
         /* There could potentially be a minus sign. */
-        if (peek(input) == '-') {
-            result << get(input);
+        if (peekChar(input) == '-') {
+            result << toUTF8(readChar(input));
         }
 
         result << readDigits(input);
@@ -589,25 +578,25 @@ namespace {
 
     string readFrac(istream& input) {
         /* If the next character isn't a dot, there's nothing to read. */
-        if (peek(input) != '.') return "";
+        if (peekChar(input) != '.') return "";
 
         /* Otherwise, we should see a dot, then a series of digits. */
         ostringstream result;
-        result << get(input);
+        result << toUTF8(readChar(input));
         result << readDigits(input);
         return result.str();
     }
 
     string readExp(istream& input) {
         /* If the next character isn't e or E, there's nothing to read. */
-        if (peek(input) != 'E' && peek(input) != 'e') return "";
+        if (peekChar(input) != 'E' && peekChar(input) != 'e') return "";
 
         ostringstream result;
-        result << get(input);
+        result << toUTF8(readChar(input));
 
         /* There may optionally be a sign. */
-        if (peek(input) == '+' || peek(input) == '-') {
-            result << get(input);
+        if (peekChar(input) == '+' || peekChar(input) == '-') {
+            result << toUTF8(readChar(input));
         }
 
         /* Now, read some digits. */
@@ -639,7 +628,7 @@ namespace {
 
     JSON readValue(istream& input) {
         /* Determine what to read based on the next character of input. */
-        char next = peek(input);
+        char32_t next = peekChar(input);
 
         if (next == '{') return readObject(input);
         if (next == '[') return readArray(input);
@@ -648,7 +637,7 @@ namespace {
         if (next == 't' || next == 'f') return JSON(readBoolean(input));
         if (next == 'n') return JSON(readNull(input));
 
-        parseError("Not sure how to handle value starting with character " + string(1, next));
+        parseError("Not sure how to handle value starting with character " + toUTF8(next));
     }
 
     string readString(istream& input) {
@@ -658,7 +647,10 @@ namespace {
 
         /* Keep reading characters as we find them. */
         while (true) {
-            char next = get(input);
+            char32_t next = readChar(input);
+            
+            /* Only a certain character range is valid. */
+            if (next < 0x20 || next > 0x10FFFF) parseError("Illegal character: " + toUTF8(next));
 
             /* We're done if this is a close quote. */
             if (next == '"') return result;
@@ -668,7 +660,7 @@ namespace {
 
             /* Otherwise, read it as an escape. */
             else {
-                char escaped = get(input);
+                char32_t escaped = readChar(input);
                 if      (escaped == '"')  result += '"';
                 else if (escaped == '\\') result += '\\';
                 else if (escaped == '/')  result += '/';
@@ -677,8 +669,10 @@ namespace {
                 else if (escaped == 'r')  result += '\r';
                 else if (escaped == 't')  result += '\t';
                 else if (escaped == 'u') {
-                    // TODO: PROCESS UNICODE ESCAPE
-                } else parseError("Unknown escape sequence: \\" + string(1, escaped));
+                    input.unget();
+                    input.unget();
+                    result += toUTF8(readUTF16EscapedChar(input));
+                } else parseError("Unknown escape sequence: \\" + toUTF8(escaped));
             }
         }
     }
@@ -702,8 +696,8 @@ namespace {
         vector<JSON> elems;
 
         /* Edge case: This could be an empty array. */
-        if (peek(input) == ']') {
-            get(input); // Consume ']'
+        if (peekChar(input) == ']') {
+            readChar(input); // Consume ']'
             return JSON(elems);
         }
 
@@ -714,9 +708,9 @@ namespace {
             /* The next character should either be a comma or a close bracket. We stop
              * on a close bracket and continue on a comma.
              */
-            char next = get(input);
+            char32_t next = readChar(input);
             if (next == ']') return JSON(elems);
-            if (next != ',') parseError("Expected , or ], got " + string(1, next));
+            if (next != ',') parseError("Expected , or ], got " + toUTF8(next));
         }
     }
 
@@ -726,8 +720,8 @@ namespace {
         unordered_map<string, JSON> elems;
 
         /* Edge case: This could be an empty object. */
-        if (peek(input) == '}') {
-            get(input); // Consume ']'
+        if (peekChar(input) == '}') {
+            readChar(input); // Consume ']'
             return JSON(elems);
         }
 
@@ -739,9 +733,9 @@ namespace {
             /* The next character should either be a comma or a close brace. We stop
              * on a close brace and continue on a comma.
              */
-            char next = get(input);
+            char32_t next = readChar(input);
             if (next == '}') return JSON(elems);
-            if (next != ',') parseError("Expected , or }, got " + string(1, next));
+            if (next != ',') parseError("Expected , or }, got " + toUTF8(next));
         }
     }
 
