@@ -172,7 +172,7 @@ char32_t peekChar(istream& source) {
 
 string utf16EscapeFor(char32_t ch) {
     /* If this character is in the range where we can just directly convert it, go do so. */
-    if ((ch >= 0 && ch <= 0xD7FF) || (ch >= 0xE000 && ch <= 0xFFFF)) {
+    if (ch <= 0xD7FF || (ch >= 0xE000 && ch <= 0xFFFF)) {
         return oneEscapeUTF16For(ch);
     } else {
         return oneEscapeUTF16For(highSurrogateFor(ch)) + oneEscapeUTF16For(lowSurrogateFor(ch));
