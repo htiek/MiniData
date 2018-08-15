@@ -6,6 +6,7 @@
 #include <ostream>
 #include <vector>
 #include <unordered_map>
+#include <cstdint>
 
 /* Type representing a value represented in JSON format. */
 class JSON {
@@ -13,6 +14,7 @@ public:
     /* Constructs a JSON object from a literal of some sort. */
     explicit JSON(std::nullptr_t value);
     explicit JSON(double value);
+    explicit JSON(std::int64_t value);
     explicit JSON(bool value);
     explicit JSON(const std::string& value);
     
@@ -42,7 +44,8 @@ public:
     /* Accessors. All of these functions will raise an error() if the underlying type
      * is incorrect.
      */
-    double         asNumber()  const;
+    double         asDouble()  const;
+    std::int64_t   asInteger() const;
     bool           asBoolean() const;
     std::nullptr_t asNull()    const;
     std::string    asString()  const;

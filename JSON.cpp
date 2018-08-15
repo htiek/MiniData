@@ -21,6 +21,15 @@ public:
     /* Outputs this object to a stream. */
     virtual void print(ostream& out) const = 0;
 
+    /* Backdoor route for constructing a JSON directly from a BaseJSON. This is used
+     * because BaseJSON is a friend of JSON and therefore can call its internal
+     * constructor.
+     */
+    template <typename Type, typename... Args>
+    static JSON make(Args&&... args) {
+        return JSON(make_shared<Type>(forward<Args>(args)...));
+    }
+
 protected:
     BaseJSON(JSON::Type type);
 
@@ -65,16 +74,21 @@ private:
     bool mValue;
 };
 
-/* Type representing a number. */
+/* Type representing some form of numeric quantity. */
 class NumberJSON: public BaseJSON {
 public:
-    NumberJSON(double value);
-    double value() const;
-    
+    NumberJSON(const string& value);
+
+    double  asDouble() const;
+    int64_t asInteger() const;
+
     void print(ostream& out) const override;
 
 private:
-    double mValue;
+    /* We will represent the underlying number as a string. The client can
+     * then tell us what to do with it.
+     */
+    string mValue;
 };
 
 /* Type representing a string. */
@@ -189,12 +203,31 @@ void StringJSON::print(ostream& out) const {
     printString(out, mValue);
 }
 
-NumberJSON::NumberJSON(double value) : BaseJSON(JSON::Type::NUMBER), mValue(value) {
+NumberJSON::NumberJSON(const string& value) : BaseJSON(JSON::Type::NUMBER), mValue(value) {
 
 }
 
-double NumberJSON::value() const {
-    return mValue;
+double NumberJSON::asDouble() const {
+    istringstream extractor(mValue);
+    double result;
+    extractor >> result;
+
+    return result;
+}
+int64_t NumberJSON::asInteger() const {
+    /* If the text in question contains a decimal point or exponent, then we have to
+     * route it through a double.
+     */
+    if (mValue.find_first_of(".Ee") != string::npos) {
+        return asDouble();
+    }
+
+    /* Otherwise, we can just read off the value as-is. */
+    istringstream extractor(mValue);
+    int64_t result;
+    extractor >> result;
+
+    return result;
 }
 
 void NumberJSON::print(ostream& out) const {
@@ -363,8 +396,11 @@ nullptr_t JSON::asNull() const {
 bool JSON::asBoolean() const {
     return as<BoolJSON>(mImpl)->value();
 }
-double JSON::asNumber() const {
-    return as<NumberJSON>(mImpl)->value();
+double JSON::asDouble() const {
+    return as<NumberJSON>(mImpl)->asDouble();
+}
+int64_t JSON::asInteger() const {
+    return as<NumberJSON>(mImpl)->asInteger();
 }
 string JSON::asString() const {
     return as<StringJSON>(mImpl)->value();
@@ -384,7 +420,7 @@ bool JSON::contains(const string& key) const {
 
 JSON JSON::operator [](JSON key) const {
     /* Forward as appropriate. */
-    if (key.type() == JSON::Type::NUMBER) return (*this)[key.asNumber()];
+    if (key.type() == JSON::Type::NUMBER) return (*this)[key.asInteger()];
     if (key.type() == JSON::Type::STRING) return (*this)[key.asString()];
     
     error("Cannot use this JSON object as a key.");
@@ -411,7 +447,10 @@ JSON::JSON(nullptr_t) : mImpl(make_shared<NullJSON>(nullptr)) {
 JSON::JSON(bool value) : mImpl(make_shared<BoolJSON>(value)) {
 
 }
-JSON::JSON(double value) : mImpl(make_shared<NumberJSON>(value)) {
+JSON::JSON(double value) : mImpl(make_shared<NumberJSON>(to_string(value))) {
+
+}
+JSON::JSON(int64_t value) : mImpl(make_shared<NumberJSON>(to_string(value))) {
 
 }
 JSON::JSON(const string& value) : mImpl(make_shared<StringJSON>(value)) {
@@ -517,7 +556,7 @@ namespace {
     JSON readObject(istream& input);
     JSON readElement(istream& input);
     JSON readArray(istream& input);
-    double readNumber(istream& input);
+    JSON readNumber(istream& input);
     string readString(istream& input);
 
     nullptr_t readNull(istream& input) {
@@ -552,13 +591,9 @@ namespace {
 
         result << toUTF8(digit);
 
-        /* If that digit was a zero, we're done. Otherwise, keep reading characters until
-         * we hit something that isn't a digit.
-         */
-        if (digit != '0') {
-            while (isDigit(peekChar(input))) {
-                result << toUTF8(readChar(input));
-            }
+        /* Keep reading characters until we hit something that isn't a digit. */
+        while (isDigit(peekChar(input))) {
+            result << toUTF8(readChar(input));
         }
 
         return result.str();
@@ -572,7 +607,15 @@ namespace {
             result << toUTF8(readChar(input));
         }
 
-        result << readDigits(input);
+        /* There are two options here. First, we could be reading the number 0, in which
+         * case we just read a 0. Nothing is permitted after this. Second, we could be
+         * reading a multi-digit number, in which case that's what we'll go do.
+         */
+        if (peekChar(input) == '0') { // Just a zero
+            result << toUTF8(readChar(input));
+        } else {
+            result << readDigits(input);
+        }
         return result.str();
     }
 
@@ -605,25 +648,12 @@ namespace {
         return result.str();
     }
 
-    double readNumber(istream& input) {
+    JSON readNumber(istream& input) {
         auto intPart  = readInt(input);
         auto fracPart = readFrac(input);
         auto expPart  = readExp(input);
 
-        string number = intPart + fracPart + expPart;
-        istringstream extractor(number);
-
-        double result;
-        if (extractor >> result, !extractor) {
-            parseError("Successfully parsed " + number + " from input, but couldn't interpret it as a double.");
-        }
-
-        char leftover;
-        if (extractor >> leftover) {
-            parseError("Successfully parsed " + number + " from input, but when converting it, found extra character " + string(1, leftover));
-        }
-
-        return result;
+        return BaseJSON::make<NumberJSON>(intPart + fracPart + expPart);
     }
 
     JSON readValue(istream& input) {
@@ -633,7 +663,7 @@ namespace {
         if (next == '{') return readObject(input);
         if (next == '[') return readArray(input);
         if (next == '"') return JSON(readString(input));
-        if (next == '-' || isdigit(next)) return JSON(readNumber(input));
+        if (next == '-' || isdigit(next)) return readNumber(input);
         if (next == 't' || next == 'f') return JSON(readBoolean(input));
         if (next == 'n') return JSON(readNull(input));
 
@@ -721,7 +751,7 @@ namespace {
 
         /* Edge case: This could be an empty object. */
         if (peekChar(input) == '}') {
-            readChar(input); // Consume ']'
+            readChar(input); // Consume '}'
             return JSON(elems);
         }
 
