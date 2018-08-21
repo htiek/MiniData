@@ -719,7 +719,7 @@ namespace {
             if (next == '"') return result;
 
             /* If this isn't an escape sequence, just append it. */
-            if (next != '\\') result += next;
+            if (next != '\\') result += toUTF8(next);
 
             /* Otherwise, read it as an escape. */
             else {
