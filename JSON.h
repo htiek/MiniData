@@ -7,6 +7,7 @@
 #include <vector>
 #include <unordered_map>
 #include <cstdint>
+#include <stdexcept>
 
 /* Type representing a value represented in JSON format. */
 class JSON {
@@ -41,7 +42,7 @@ public:
     /* Returns the type of this object. */
     Type type() const;
 
-    /* Accessors. All of these functions will raise an error() if the underlying type
+    /* Accessors. All of these functions will throw a JSONException if the underlying type
      * is incorrect.
      */
     double         asDouble()  const;
@@ -50,12 +51,12 @@ public:
     std::nullptr_t asNull()    const;
     std::string    asString()  const;
 
-    /* Array accessors. Again, these will raise error()s if the underlying type is
+    /* Array accessors. Again, these will throw JSONExceptions if the underlying type is
      * incorrect.
      */
     JSON operator[] (std::size_t index) const;
 
-    /* Object accessors. As usual, these raise error()s if the underlying type is
+    /* Object accessors. As usual, these throw JSONExceptions if the underlying type is
      * incorrect.
      */
     JSON operator[] (const std::string& field) const;
@@ -116,6 +117,12 @@ private:
     std::shared_ptr<class JSONSource> mImpl;
     
     const_iterator(std::shared_ptr<class JSONSource>);
+};
+
+/* Exception type thrown when an error occurs. */
+class JSONException: public std::logic_error {
+public:
+    JSONException(const std::string& reason);
 };
 
 #endif
