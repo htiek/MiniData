@@ -185,8 +185,8 @@ JSON::Type BaseJSON::type() const {
     return mType;
 }
 
-NullJSON::NullJSON(nullptr_t value) : BaseJSON(JSON::Type::NULLPTR_T) {
-    if (value != nullptr) error("NullJSON constructed with non-null nullptr_t?");
+NullJSON::NullJSON(nullptr_t) : BaseJSON(JSON::Type::NULLPTR_T) {
+
 }
 
 nullptr_t NullJSON::value() const {
