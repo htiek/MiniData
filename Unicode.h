@@ -3,16 +3,18 @@
 
 #include <istream>
 #include <ostream>
+#include <stdexcept>
+#include <string>
 
 /* Given a stream encoded in UTF-8, extracts one character from the stream. If the stream is
  * doesn't contain a proper encoding of a character - including if it's at EOF - this reports
- * an error().
+ * an error by throwing a UTFException.
  */
 char32_t readChar(std::istream& source);
 
 /* Given a stream encoded in UTF-8, peeks at the next character from the stream. If the stream
  * doesn't contain a proper encoding of a character - including if it's at EOF - this reports
- * an error().
+ * an error by throwing a UTFException.
  */
 char32_t peekChar(std::istream& source);
 
@@ -29,8 +31,14 @@ std::string utf16EscapeFor(char32_t ch);
 /* Given a string pointing at an escape sequence of the form \uHHHH (or \uHHHH\uHHHH for a
  * surrogate pair), reads the escape sequence(s) and returns the resulting character. If
  * the stream doesn't contain a sequence formatted this way - including if it's at EOF -
- * this reports an error().
+ * this reports an error by throwing a UTFException.
  */
 char32_t readUTF16EscapedChar(std::istream& source);
+
+/* Type representing an exception generated during UTF coding. */
+class UTFException: public std::logic_error {
+public:
+    UTFException(const std::string& message);
+};
 
 #endif

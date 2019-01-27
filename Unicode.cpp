@@ -1,15 +1,19 @@
 #include "Unicode.h"
-#include "error.h"
 #include <sstream>
 #include <iomanip>
 #include <cctype>
 using namespace std;
 
 namespace {
+    /* Reports a UTF error. */
+    [[ noreturn ]] void utfError(const string& message) {
+        throw UTFException(message);
+    }
+
     /* Gets the next raw character from a stream, reporting an error() if unable to do so. */
     char get(istream& input) {
         char result;
-        if (!input.get(result)) error("Unexpected end of stream.");
+        if (!input.get(result)) utfError("Unexpected end of stream.");
 
         return result;
     }
@@ -41,11 +45,11 @@ namespace {
         if      ((header & 0b11100000) == 0b11000000) followBytes = 1;
         else if ((header & 0b11110000) == 0b11100000) followBytes = 2;
         else if ((header & 0b11111000) == 0b11110000) followBytes = 3;
-        else error("Byte header doesn't match UTF-8 patterns.");
+        else utfError("Byte header doesn't match UTF-8 patterns.");
         
         for (size_t i = 0; i < followBytes; i++) {
             char next = get(source);
-            if (!isFollowByte(next)) error("Expected follow byte, got " + toHex(next));
+            if (!isFollowByte(next)) utfError("Expected follow byte, got " + toHex(next));
             
             result += next;
         }
@@ -57,11 +61,11 @@ namespace {
      * bytes into a single character.
      */
     char32_t decode(const string& bytes) {
-        if (bytes.empty()) error("Empty byte string?");
+        if (bytes.empty()) utfError("Empty byte string?");
         
         /* If the first byte starts with a zero bit, we just return it as-is. */
         if ((bytes[0] & 0b10000000) == 0) {
-            if (bytes.size() != 1) error("Wrong number of bytes for 7-bit code point.");
+            if (bytes.size() != 1) utfError("Wrong number of bytes for 7-bit code point.");
             
             return bytes[0];
         }
@@ -70,8 +74,8 @@ namespace {
          * of the form 110bbbbb 10bbbbbb
          */
         if ((bytes[0] & 0b11100000) == 0b11000000) {
-            if (bytes.size() != 2) error("Wrong number of bytes for 11-bit code point.");
-            if (!isFollowByte(bytes[1])) error("Paired byte has wrong header.");
+            if (bytes.size() != 2) utfError("Wrong number of bytes for 11-bit code point.");
+            if (!isFollowByte(bytes[1])) utfError("Paired byte has wrong header.");
             
             return ((bytes[0] & 0b00011111) << 6) +
                    ((bytes[1] & 0b00111111) << 0);
@@ -81,9 +85,9 @@ namespace {
          * of the form 1110bbbb 10bbbbbb 10bbbbbb.
          */
         if ((bytes[0] & 0b11110000) == 0b11100000) {
-            if (bytes.size() != 3) error("Wrong number of bytes for 16-bit code point.");
-            if (!isFollowByte(bytes[1])) error("First paired byte has wrong header.");
-            if (!isFollowByte(bytes[2])) error("Second paired byte has wrong header.");
+            if (bytes.size() != 3) utfError("Wrong number of bytes for 16-bit code point.");
+            if (!isFollowByte(bytes[1])) utfError("First paired byte has wrong header.");
+            if (!isFollowByte(bytes[2])) utfError("Second paired byte has wrong header.");
             
             return ((bytes[0] & 0b00001111) << 12) + 
                    ((bytes[1] & 0b00111111) <<  6) +
@@ -94,10 +98,10 @@ namespace {
          * of the form 11110bbb 10bbbbbb 10bbbbbb 10bbbbbb.
          */
         if ((bytes[0] & 0b11111000) == 0b11110000) {
-            if (bytes.size() != 4) error("Wrong number of bytes for 21-bit code point.");
-            if (!isFollowByte(bytes[1])) error("First paired byte has wrong header.");
-            if (!isFollowByte(bytes[2])) error("Second paired byte has wrong header.");
-            if (!isFollowByte(bytes[3])) error("Third paired byte has wrong header.");
+            if (bytes.size() != 4) utfError("Wrong number of bytes for 21-bit code point.");
+            if (!isFollowByte(bytes[1])) utfError("First paired byte has wrong header.");
+            if (!isFollowByte(bytes[2])) utfError("Second paired byte has wrong header.");
+            if (!isFollowByte(bytes[3])) utfError("Third paired byte has wrong header.");
             
             return ((bytes[0] & 0b00000111) << 18) + 
                    ((bytes[1] & 0b00111111) << 12) +
@@ -105,8 +109,7 @@ namespace {
                    ((bytes[3] & 0b00111111) <<  0);
         }
         
-        error("Not sure how to handle byte " + toHex(bytes[0]));
-        abort();
+        utfError("Not sure how to handle byte " + toHex(bytes[0]));
     }
     
     /* Given a 16-bit value, writes out an escape sequence for it. */
@@ -135,14 +138,14 @@ namespace {
      */
     char32_t readOneUTF16Escape(istream& input) {
         /* Confirm we start with \u. */
-        if (get(input) != '\\') error("Expected \\u.");
-        if (get(input) != 'u')  error("Expected \\u.");
+        if (get(input) != '\\') utfError("Expected \\u.");
+        if (get(input) != 'u')  utfError("Expected \\u.");
         
         /* Read four bytes of hex. */
         string builder;
         for (int i = 0; i < 4; i++) {
             char next = get(input);
-            if (!isxdigit(next)) error("Expected hexadecimal digit, got " + string(1, next));
+            if (!isxdigit(next)) utfError("Expected hexadecimal digit, got " + string(1, next));
             
             builder += next;
         }
@@ -164,7 +167,7 @@ char32_t peekChar(istream& source) {
     /* Put the bytes back. */
     for (size_t i = 0; i < bytes.size(); i++) {
         source.unget();
-        if (!source) error("Couldn't unget enough characters.");
+        if (!source) utfError("Couldn't unget enough characters.");
     }
     
     return result;
@@ -184,7 +187,7 @@ char32_t readUTF16EscapedChar(istream& source) {
     
     /* If what we read is pair of a high surrogate, read the next half and reassemble it. */
     if (result >= 0xD800 && result <= 0xDFFF) {
-        if (result >= 0xDC00) error("Read second half of surrogate pair with no matching first half?");
+        if (result >= 0xDC00) utfError("Read second half of surrogate pair with no matching first half?");
         
         return assembleSurrogates(result, readOneUTF16Escape(source));
     }
@@ -236,8 +239,12 @@ string toUTF8(char32_t charCode) {
                << char(lowSix | 0b10000000);
     }
     else {
-        error("Unicode value out of range: " + to_string(charCode));
+        utfError("Unicode value out of range: " + to_string(charCode));
     }
 
     return result.str();
+}
+
+UTFException::UTFException(const string& message) : logic_error(message) {
+
 }

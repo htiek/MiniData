@@ -1,11 +1,15 @@
 #include "CSV.h"
-#include "strlib.h"
-#include "error.h"
 #include <sstream>
 #include <fstream>
+#include <tuple>
 using namespace std;
 
 namespace {
+    /* Reports an error. */
+    [[ noreturn ]] void csvError(const string& message) {
+        throw CSVException(message);
+    }
+
     /* Reads a single CSV token from a source. Each token either
      *
      *  1. does not start with a quote, in which case we read up until the first comma, or
@@ -38,7 +42,7 @@ namespace {
         while (true) {
             int ch = input.get();
             
-            if (ch == EOF) error("Unterminated string literal.");
+            if (ch == EOF) csvError("Unterminated string literal.");
             else if (ch != '"') result += char(ch);
             else {
                 int next = input.peek();
@@ -47,42 +51,42 @@ namespace {
                     /* Consume this character so we don't process it twice. */
                     input.get();
                     result += '"';
-                } else error("Unexpected character found after quote.");
+                } else csvError("Unexpected character found after quote.");
             }
         }
     }
 
     /* Tokenizes a line from a CSV file, returning a list of tokens within that line. */
-    Vector<string> tokenize(const string& line) {
+    vector<string> tokenize(const string& line) {
         /* Edge case: we assume there are no empty lines even though in principle we could
          * envision a 0 x n data array. That likely just means something went wrong.
          */
-        if (line.empty()) error("Empty line in CSV file.");
+        if (line.empty()) csvError("Empty line in CSV data.");
     
         /* Convert to a stream to make it easier to treat the characters as though they're a stream. */
         istringstream input(line);
         
-        Vector<string> result;
+        vector<string> result;
         while (true) {
-            result += readOneTokenFrom(input);
+            result.push_back(readOneTokenFrom(input));
             
             /* We should either see a comma or an EOF at this point. */
             if (input.peek() == EOF) return result;
-            if (input.get()  != ',') error("Entries in CSV file aren't comma-separated?");
+            if (input.get()  != ',') csvError("Entries in CSV file aren't comma-separated?");
         }
     }
 
     /* Reads the first line of a CSV file, breaking it apart into headers. */
-    LinkedHashMap<string, int> readHeaders(istream& input) {
+    unordered_map<string, size_t> readHeaders(istream& input) {
         string line;
-        if (!getline(input, line)) error("Could not read header row from CSV source.");
+        if (!getline(input, line)) csvError("Could not read header row from CSV source.");
         
-        LinkedHashMap<string, int> result;
+        unordered_map<string, size_t> result;
         for (auto token: tokenize(line)) {
-            if (result.containsKey(token)) error("Duplicate column header: " + token);
+            if (result.count(token)) csvError("Duplicate column header: " + token);
             
-            int index = result.size();
-            result.add(token, index);
+            size_t index = result.size();
+            result[token] = index;
         }
         
         return result;
@@ -90,74 +94,85 @@ namespace {
     
     /* Reads the body of a CSV file under the assumption that it has a certain number of
      * columns.
+     *
+     * The result is a pairing of the row-major-ordering of the data, along with the
+     * number of rows in the data.
      */
-    Grid<string> readBody(istream& input, int numCols) {
-        /* We'll build the grid as a Vector<Vector<string>> and collapse it at the end. */
-        Vector<Vector<string>> lines;
+    tuple<vector<string>, size_t> readBody(istream& input, size_t numCols) {
+        /* We'll build the grid as a vector<vector<string>> and collapse it at the end. */
+        vector<vector<string>> lines;
         for (string line; getline(input, line); ) {
             auto tokens = tokenize(line);
-            if (tokens.size() != numCols) error("Lines have varying number of entries.");
+            if (tokens.size() != numCols) csvError("Lines have varying number of entries.");
             
-            lines += tokens;
+            lines.push_back(tokens);
         }
         
         /* Flatten the list. */
-        Grid<string> result(lines.size(), numCols);
-        for (int row = 0; row < lines.size(); row++) {
-            for (int col = 0; col < numCols; col++) {
-                result[row][col] = lines[row][col];
+        vector<string> result;
+        for (size_t row = 0; row < lines.size(); row++) {
+            for (size_t col = 0; col < numCols; col++) {
+                result.push_back(lines[row][col]);
             }
         }
-        return result;
+        return make_tuple(result, lines.size());
     }
 }
 
-CSV::CSV(istream& input) {
-    mColumnHeaders = readHeaders(input);
-    mData          = readBody(input, mColumnHeaders.size());
+CSV CSV::parse(istream& input) {
+    CSV result;
+
+    result.mColumnHeaders = readHeaders(input);
+    tie(result.mData, result.mRows) = readBody(input, result.mColumnHeaders.size());
+
+    return result;
 }
 
-CSV::CSV(const string& filename) {
+CSV CSV::parseFile(const string& filename) {
     ifstream input(filename);
-    if (!input) error("Cannot open file " + filename);
+    if (!input) csvError("Cannot open file " + filename);
 
-    mColumnHeaders = readHeaders(input);
-    mData          = readBody(input, mColumnHeaders.size());
+    return CSV::parse(input);
 }
 
-int CSV::numRows() const {
-    return mData.numRows();
+size_t CSV::numRows() const {
+    return mRows;
 }
 
-int CSV::numCols() const {
-    return mData.numCols();
+size_t CSV::numCols() const {
+    return mColumnHeaders.size();
 }
 
-Vector<string> CSV::headers() const {
-    Vector<string> result;
-    for (auto header: mColumnHeaders) {
-        result += header;
+vector<string> CSV::headers() const {
+    vector<string> result(mColumnHeaders.size());
+    for (const auto& entry: mColumnHeaders) {
+        result[entry.second] = entry.first;
     }
     return result;
 }
 
-CSV::RowRef CSV::operator[] (int row) const {
-    if (row < 0 || row >= numRows()) error("Row out of range.");
+CSV::RowRef CSV::operator[] (size_t row) const {
+    if (row >= numRows()) csvError("Row out of range.");
     
     return RowRef(this, row);
 }
 
-CSV::RowRef::RowRef(const CSV* parent, int row) : mParent(parent), mRow(row) {
+CSV::RowRef::RowRef(const CSV* parent, size_t row) : mParent(parent), mRow(row) {
 
 }
 
-string CSV::RowRef::operator[] (int col) const {
-    if (col < 0 || col >= mParent->numCols()) error("Column out of range.");
+string CSV::RowRef::operator[] (size_t col) const {
+    if (col >= mParent->numCols()) csvError("Column out of range.");
     
-    return mParent->mData[mRow][col];
+    return mParent->mData[mParent->numCols() * mRow + col];
 }
 string CSV::RowRef::operator[] (const string& colHeader) const {
-    if (!mParent->mColumnHeaders.containsKey(colHeader)) error("Column not found: " + colHeader);
+    auto itr = mParent->mColumnHeaders.find(colHeader);
+    if (itr == mParent->mColumnHeaders.end()) csvError("Column not found: " + colHeader);
 
-    return (*this)[mParent->mColumnHeaders.get(colHeader)];
+    return (*this)[itr->second];
+}
+
+CSVException::CSVException(const string& message) : logic_error(message) {
+    // Handled in initialization list
 }

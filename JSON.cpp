@@ -1,6 +1,5 @@
 #include "JSON.h"
 #include "Unicode.h"
-#include "error.h"
 #include <unordered_map>
 #include <vector>
 #include <sstream>
@@ -9,6 +8,13 @@
 #include <string>
 #include <iterator>
 using namespace std;
+
+/* Utility function to report an error. */
+namespace {
+    [[ noreturn ]] void jsonError(const string& message) {
+        throw JSONException(message);
+    }
+}
 
 /* Base internal type for JSON objects. */
 class BaseJSON {
@@ -286,7 +292,7 @@ shared_ptr<JSONSource> ArrayJSON::source() const {
 
 JSON ArrayJSON::operator[] (size_t index) const {
     if (index >= mElems.size()) {
-        error("Index out of range: " + to_string(index) + ", but size is " + to_string(size()));
+        jsonError("Index out of range: " + to_string(index) + ", but size is " + to_string(size()));
     }
     return mElems[index];
 }
@@ -309,7 +315,7 @@ bool ObjectJSON::contains(const string& key) const {
 
 JSON ObjectJSON::operator[](const string& key) const {
     if (!contains(key)) {
-        error("Key " + key + " does not exist.");
+        jsonError("Key " + key + " does not exist.");
     }
     return mElems.at(key);
 }
@@ -377,7 +383,7 @@ namespace {
             ostringstream result;
             result << "Wrong JSON type. Actual type is " << typeid(*base).name()
                    << ", which can't be converted to " << typeid(Target).name();
-            error(result.str());
+            jsonError(result.str());
         }
         return result;
     }
@@ -422,7 +428,7 @@ JSON JSON::operator [](JSON key) const {
     if (key.type() == JSON::Type::NUMBER) return (*this)[key.asInteger()];
     if (key.type() == JSON::Type::STRING) return (*this)[key.asString()];
     
-    error("Cannot use this JSON object as a key.");
+    jsonError("Cannot use this JSON object as a key.");
     abort();
 }
 
@@ -526,16 +532,9 @@ JSON JSON::parse(const string& input) {
 }
 
 namespace {
-    /* Utility function to report an error. This function is marked noreturn.
-     *
-     * TODO: Change StanfordCPPLib to mark error as [[ noreturn ]] to avoid the need
-     * for this.
-     */
+    /* Utility function to report an parsing error. */
     [[ noreturn ]] void parseError(const string& reason) {
-        error("JSON Parse Error: " + reason);
-
-        /* Unreachable; silences errors. */
-        abort();
+        jsonError("JSON Parse Error: " + reason);
     }
 
     /* Utility function to confirm the next character matches a specific value. */
@@ -820,4 +819,11 @@ JSON JSON::parse(istream& input) {
     if (input) parseError("Unexpected character found at end of stream: " + string(1, leftover));
 
     return result;
+}
+
+/***************************************************************************/
+/***********         Implementation of exception types           ***********/
+/***************************************************************************/
+JSONException::JSONException(const string& reason): logic_error(reason) {
+    // Handled in initializer list
 }
