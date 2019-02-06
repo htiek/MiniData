@@ -98,7 +98,7 @@ namespace {
      * The result is a pairing of the row-major-ordering of the data, along with the
      * number of rows in the data.
      */
-    tuple<vector<string>, size_t> readBody(istream& input, int numCols) {
+    tuple<vector<string>, size_t> readBody(istream& input, size_t numCols) {
         /* We'll build the grid as a vector<vector<string>> and collapse it at the end. */
         vector<vector<string>> lines;
         for (string line; getline(input, line); ) {
