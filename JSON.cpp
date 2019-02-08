@@ -381,7 +381,9 @@ namespace {
         auto result = dynamic_pointer_cast<Target>(base);
         if (!result) {
             ostringstream result;
-            result << "Wrong JSON type. Actual type is " << typeid(*base).name()
+            auto& baseObj = *base.get(); // Suppress Mac compiler warning on typeid
+            (void) baseObj;              // Suppress Linux compiler warning
+            result << "Wrong JSON type. Actual type is " << typeid(baseObj).name()
                    << ", which can't be converted to " << typeid(Target).name();
             jsonError(result.str());
         }
@@ -429,7 +431,6 @@ JSON JSON::operator [](JSON key) const {
     if (key.type() == JSON::Type::STRING) return (*this)[key.asString()];
     
     jsonError("Cannot use this JSON object as a key.");
-    abort();
 }
 
 ostream& operator<< (ostream& out, JSON json) {
