@@ -18,6 +18,8 @@ public:
     explicit JSON(std::int64_t value);
     explicit JSON(bool value);
     explicit JSON(const std::string& value);
+    explicit JSON(const char* value);
+    template <std::size_t N> explicit JSON(const char (&value)[N]) : JSON((const char *)value) {}
     
     /* Constructs a JSON array from a list of JSON objects. */
     explicit JSON(const std::vector<JSON>& elems);

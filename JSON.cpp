@@ -462,6 +462,9 @@ JSON::JSON(int64_t value) : mImpl(make_shared<NumericValueJSON<int64_t>>(value))
 JSON::JSON(const string& value) : mImpl(make_shared<StringJSON>(value)) {
 
 }
+JSON::JSON(const char* value) : mImpl(make_shared<StringJSON>(value)) {
+
+}
 JSON::JSON(const vector<JSON>& elems) : mImpl(make_shared<ArrayJSON>(elems)) {
 
 }
