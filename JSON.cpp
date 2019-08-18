@@ -33,7 +33,7 @@ public:
      */
     template <typename Type, typename... Args>
     static JSON make(Args&&... args) {
-        return JSON(make_shared<Type>(forward<Args>(args)...));
+        return JSON(make_shared<Type>(forward<Args>(args)...), JSON::ConstructorTag());
     }
 
 protected:
@@ -391,7 +391,7 @@ namespace {
     }
 }
 
-JSON::JSON(shared_ptr<BaseJSON> impl) : mImpl(impl) {
+JSON::JSON(shared_ptr<BaseJSON> impl, ConstructorTag) : mImpl(impl) {
 
 }
 JSON::Type JSON::type() const {
@@ -439,36 +439,44 @@ ostream& operator<< (ostream& out, JSON json) {
 }
 
 /***************************************************************************/
+/***********     Implementation of JSON constructor helpers      ***********/
+/***************************************************************************/
+shared_ptr<BaseJSON> JSON::fromNull(nullptr_t) {
+  return make_shared<NullJSON>(nullptr);
+}
+shared_ptr<BaseJSON> JSON::fromBoolean(bool value) {
+  return make_shared<BoolJSON>(value);
+}
+shared_ptr<BaseJSON> JSON::fromDouble(double value) {
+  return make_shared<NumericValueJSON<double>>(value);
+}
+shared_ptr<BaseJSON> JSON::fromInteger(int64_t value) {
+  return make_shared<NumericValueJSON<int64_t>>(value);
+}
+shared_ptr<BaseJSON> JSON::fromString(const string& value) {
+  return make_shared<StringJSON>(value);
+}
+shared_ptr<BaseJSON> JSON::fromArray(const vector<JSON>& elems) {
+  return make_shared<ArrayJSON>(elems);
+}
+shared_ptr<BaseJSON> JSON::fromMap(const unordered_map<string, JSON>& elems) {
+  return make_shared<ObjectJSON>(elems);
+}
+
+JSON JSON::array(initializer_list<JSON> elems) {
+  return JSON(vector<JSON>(elems));
+}
+JSON JSON::object(initializer_list<pair<const string, JSON>> elems) {
+  return JSON(unordered_map<string, JSON>(elems));
+}
+
+/***************************************************************************/
 /***********       Implementation of JSON::const_iterator        ***********/
 /***************************************************************************/
 JSON::const_iterator::const_iterator() {
     // Leave mImpl uninitialized
 }
 JSON::const_iterator::const_iterator(shared_ptr<JSONSource> source) : mImpl(source) {
-
-}
-JSON::JSON(nullptr_t) : mImpl(make_shared<NullJSON>(nullptr)) {
-
-}
-JSON::JSON(bool value) : mImpl(make_shared<BoolJSON>(value)) {
-
-}
-JSON::JSON(double value) : mImpl(make_shared<NumericValueJSON<double>>(value)) {
-
-}
-JSON::JSON(int64_t value) : mImpl(make_shared<NumericValueJSON<int64_t>>(value)) {
-
-}
-JSON::JSON(const string& value) : mImpl(make_shared<StringJSON>(value)) {
-
-}
-JSON::JSON(const char* value) : mImpl(make_shared<StringJSON>(value)) {
-
-}
-JSON::JSON(const vector<JSON>& elems) : mImpl(make_shared<ArrayJSON>(elems)) {
-
-}
-JSON::JSON(const unordered_map<string, JSON>& elems) : mImpl(make_shared<ObjectJSON>(elems)) {
 
 }
 
