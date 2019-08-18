@@ -8,28 +8,46 @@
 #include <unordered_map>
 #include <cstdint>
 #include <stdexcept>
+#include <type_traits>
+
+namespace minidata_json_impl {
+  struct NullTag    {};
+  struct BoolTag    {};
+  struct IntegerTag {};
+  struct DoubleTag  {};
+  struct StringTag  {};
+  struct ArrayTag   {};
+  struct MapTag     {};
+}
 
 /* Type representing a value represented in JSON format. */
 class JSON {
 public:
-    /* Constructs a JSON object from a literal of some sort. */
-    explicit JSON(std::nullptr_t value);
-    explicit JSON(double value);
-    explicit JSON(std::int64_t value);
-    explicit JSON(bool value);
-    explicit JSON(const std::string& value);
-    explicit JSON(const char* value);
-    template <std::size_t N> explicit JSON(const char (&value)[N]) : JSON((const char *)value) {}
-    
-    /* Constructs a JSON array from a list of JSON objects. */
-    explicit JSON(const std::vector<JSON>& elems);
-
-    /* Constructs a JSON object from a map. */
-    explicit JSON(const std::unordered_map<std::string, JSON>& elems);
+    /* Wraps the specified value as a JSON object. This constructor can accept
+     * as inputs any of the following types:
+     *
+     *   nullptr_t
+     *   bool
+     *   any integral type
+     *   any floating-point type
+     *   raw C strings
+     *   std::string
+     *   arrays
+     *   any sequence container
+     *   any associative container whose key type can be converted to string and whose value type is JSON
+     *   any initializer list that looks like an array JSONs
+     *   any initializer list that looks like a list of string/JSON pairs
+     */
+    template <typename T> JSON(const T& value);
+    template <typename T> JSON(std::initializer_list<T> value);
 
     /* Parses a piece of text into JSON format. */
     static JSON parse(std::istream& input);
     static JSON parse(const std::string& input);
+
+    /* Builds an array or object. */
+    static JSON array (std::initializer_list<JSON> elems);
+    static JSON object(std::initializer_list<std::pair<const std::string, JSON>> elems);
 
     /* Enumeration representing what type of object this is. */
     enum class Type {
@@ -91,7 +109,32 @@ private:
     friend class BaseJSON;
     std::shared_ptr<class BaseJSON> mImpl;
 
-    JSON(std::shared_ptr<class BaseJSON> impl);
+    struct ConstructorTag {};
+    JSON(std::shared_ptr<class BaseJSON> impl, ConstructorTag);
+
+    /* Construct JSON objects from objects of the appropriate types. */
+    static std::shared_ptr<class BaseJSON> fromNull(std::nullptr_t value);
+    static std::shared_ptr<class BaseJSON> fromDouble(double value);
+    static std::shared_ptr<class BaseJSON> fromInteger(std::int64_t value);
+    static std::shared_ptr<class BaseJSON> fromBoolean(bool value);
+    static std::shared_ptr<class BaseJSON> fromString(const std::string& value);
+
+    /* Constructs a JSON array from a list of JSON objects. */
+    static std::shared_ptr<class BaseJSON> fromArray(const std::vector<JSON>& elems);
+
+    /* Constructs a JSON object from a map. */
+    static std::shared_ptr<class BaseJSON> fromMap(const std::unordered_map<std::string, JSON>& elems);
+
+    /* Dispatching constructors. */
+    template <typename T> JSON(minidata_json_impl::NullTag,    const T& value) : mImpl(fromNull(value)) {}
+    template <typename T> JSON(minidata_json_impl::BoolTag,    const T& value) : mImpl(fromBoolean(value)) {}
+    template <typename T> JSON(minidata_json_impl::IntegerTag, const T& value) : mImpl(fromInteger(value)) {}
+    template <typename T> JSON(minidata_json_impl::DoubleTag,  const T& value) : mImpl(fromDouble(value)) {}
+    template <typename T> JSON(minidata_json_impl::StringTag,  const T& value) : mImpl(fromString(value)) {}
+    template <typename T> JSON(minidata_json_impl::ArrayTag,   const T& value) : 
+      mImpl(fromArray(std::vector<JSON>(std::begin(value), std::end(value)))) {}
+    template <typename T> JSON(minidata_json_impl::MapTag,     const T& value) : 
+      mImpl(fromMap(std::unordered_map<std::string, JSON>(std::begin(value), std::end(value)))) {}
 };
 
 class JSON::const_iterator {
@@ -126,5 +169,106 @@ class JSONException: public std::logic_error {
 public:
     JSONException(const std::string& reason);
 };
+
+/***** Private Implementation Details *****/
+namespace minidata_json_impl {
+  /* Traits types to determine the best type to use for something. */
+
+  /* Is this a null pointer? */
+  template <typename T> struct IsNull {
+    static const bool value = std::is_same_v<std::remove_cv_t<T>, std::nullptr_t>;
+  };
+
+  /* Is this a boolean value? */
+  template <typename T> struct IsBool {
+    static const bool value = std::is_same_v<std::remove_cv_t<T>, bool>;
+  };
+
+  /* Is this an integer? */
+  template <typename T> struct IsInteger {
+    /* Need to explicitly define bool away. */
+    static const bool value = !IsBool<T>::value && std::is_integral_v<T>;
+  };
+
+  /* Is this a double? */
+  template <typename T> struct IsDouble {
+    static const bool value = std::is_floating_point_v<T>;
+  };
+
+  /* Is this a C-style string? */
+  template <typename T> struct IsString {
+    static const bool value = false;
+  };
+  template <> struct IsString<char *> {
+    static const bool value = true;
+  };
+  template <> struct IsString<const char *> {
+    static const bool value = true;
+  };
+  template <> struct IsString<std::string> {
+    static const bool value = true;
+  };
+  template <size_t N> struct IsString<char [N]> {
+    static const bool value = true;
+  };
+  template <size_t N> struct IsString<const char [N]> {
+    static const bool value = true;
+  };
+
+  /* Is this an array of JSONs? */
+  template <typename T> struct IsArray {
+    /* Does std::begin give us something we can make a JSON from? */
+    template <typename U> static std::true_type  evaluate(int, typename std::enable_if<std::is_same_v<typename U::value_type, JSON>>::type* = nullptr);
+    template <typename U> static std::false_type evaluate(...);
+
+    static const bool value = std::is_same_v<decltype(evaluate<T>(0)), std::true_type>;
+  }; 
+  template <size_t N> struct IsArray<JSON [N]> {
+    static const bool value = true;
+  };
+  template <size_t N> struct IsArray<const JSON [N]> {
+    static const bool value = true;
+  };
+
+  /* Is this a map of JSONs? */
+  template <typename T> struct IsMap {
+    /* Does std::begin give us something where .first can be made a string and
+     * .second can be made a JSON?
+     */
+    template <typename U> using value_type = typename U::value_type;
+    template <typename U> using k_type   = decltype(std::declval<value_type<U>>().first);
+    template <typename U> using v_type = decltype(std::declval<value_type<U>>().second);
+    template <typename U> static std::true_type  evaluate(int,
+                                                          typename std::enable_if<IsString<k_type<U>>::value>* = 0,
+                                                          typename std::enable_if<std::is_same_v<v_type<U>, JSON>>::type* = 0);
+    template <typename U> static std::false_type evaluate(...);
+
+    static const bool value = std::is_same_v<decltype(evaluate<T>(0)), std::true_type>;
+  };
+
+  template <typename T> struct TagFor {
+    using type = typename std::conditional<IsNull<T>::value, NullTag,
+                  typename std::conditional<IsBool<T>::value, BoolTag,
+                    typename std::conditional<IsInteger<T>::value, IntegerTag,
+                      typename std::conditional<IsDouble<T>::value, DoubleTag,
+                        typename std::conditional<IsString<T>::value, StringTag,
+                          typename std::conditional<IsArray<T>::value, ArrayTag,
+                            typename std::conditional<IsMap<T>::value, MapTag, void>::type
+                          >::type
+                        >::type
+                      >::type
+                    >::type
+                  >::type
+                >::type;
+  };
+}
+
+/* Forward things to the right constructor. */
+template <typename T> JSON::JSON(const T& value) : JSON(typename minidata_json_impl::TagFor<T>::type(), value) {
+
+}
+template <typename T> JSON::JSON(std::initializer_list<T> value) : JSON(typename minidata_json_impl::TagFor<std::initializer_list<T>>::type(), value) {
+
+}
 
 #endif
