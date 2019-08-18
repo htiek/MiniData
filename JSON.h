@@ -35,19 +35,18 @@ public:
      *   arrays
      *   any sequence container
      *   any associative container whose key type can be converted to string and whose value type is JSON
-     *   any initializer list that looks like an array JSONs
-     *   any initializer list that looks like a list of string/JSON pairs
      */
     template <typename T> JSON(const T& value);
-    template <typename T> JSON(std::initializer_list<T> value);
 
     /* Parses a piece of text into JSON format. */
     static JSON parse(std::istream& input);
     static JSON parse(const std::string& input);
 
     /* Builds an array or object. */
-    static JSON array (std::initializer_list<JSON> elems);
-    static JSON object(std::initializer_list<std::pair<const std::string, JSON>> elems);
+    static JSON array (std::initializer_list<JSON> elems = {});
+    template <typename... T> static JSON array(const T&... args);
+    
+    static JSON object(std::initializer_list<std::pair<const std::string, JSON>> elems = {});
 
     /* Enumeration representing what type of object this is. */
     enum class Type {
@@ -267,8 +266,10 @@ namespace minidata_json_impl {
 template <typename T> JSON::JSON(const T& value) : JSON(typename minidata_json_impl::TagFor<T>::type(), value) {
 
 }
-template <typename T> JSON::JSON(std::initializer_list<T> value) : JSON(typename minidata_json_impl::TagFor<std::initializer_list<T>>::type(), value) {
 
+/* Variadic functions convert to initializer lists. */
+template <typename... T> JSON JSON::array(const T&... args) {
+  return array({ args... });
 }
 
 #endif
