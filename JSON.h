@@ -20,6 +20,7 @@ namespace minidata_json_impl {
   struct MapTag     {};
 
   template <typename T> struct IsJSONConvertible;
+  template <typename T> struct IsString;
 }
 
 /* Type representing a value represented in JSON format. */
@@ -84,6 +85,15 @@ public:
      * incorrect.
      */
     JSON operator[] (const std::string& field) const;
+
+    /* Something convertible to string. */
+    template <
+      typename String,
+      typename = typename std::enable_if<minidata_json_impl::IsString<String>::value>::type
+    >
+    JSON operator[] (const String& field) const {
+      return (*this)[std::string(field)];
+    }
     bool contains(const std::string& fieldName) const;
     
     /* Generic accessor. If the wrapped JSON object is a number, looks up the element at that index,
@@ -180,36 +190,36 @@ namespace minidata_json_impl {
 
   /* Is this a null pointer? */
   template <typename T> struct IsNull {
-    static const bool value = std::is_same_v<std::remove_cv_t<T>, std::nullptr_t>;
+    static const bool value = std::is_same<typename std::remove_cv<T>::type, std::nullptr_t>::value;
   };
 
   /* Is this a boolean value? */
   template <typename T> struct IsBool {
-    static const bool value = std::is_same_v<std::remove_cv_t<T>, bool>;
+    static const bool value = std::is_same<typename std::remove_cv<T>::type, bool>::value;
   };
 
   /* Is this an integer? */
   template <typename T> struct IsInteger {
     /* Need to explicitly define bool away. */
-    static const bool value = !IsBool<T>::value && std::is_integral_v<T>;
+    static const bool value = !IsBool<T>::value && std::is_integral<T>::value;
   };
 
   /* Is this a double? */
   template <typename T> struct IsDouble {
-    static const bool value = std::is_floating_point_v<T>;
+    static const bool value = std::is_floating_point<T>::value;
   };
 
   /* Is this a C-style string? */
   template <typename T> struct IsString {
-    static const bool value = std::is_convertible_v<T, std::string>;
+    static const bool value = std::is_convertible<T, std::string>::value;
   };
   /* Is this an array of JSONs? */
   template <typename T> struct IsArray {
     /* Does std::begin give us something we can make a JSON from? */
-    template <typename U> static std::true_type  evaluate(int, typename std::enable_if<std::is_convertible_v<typename U::value_type, JSON>>::type* = nullptr);
+    template <typename U> static std::true_type  evaluate(int, typename std::enable_if<std::is_convertible<typename U::value_type, JSON>::value>::type* = nullptr);
     template <typename U> static std::false_type evaluate(...);
 
-    static const bool value = std::is_same_v<decltype(evaluate<T>(0)), std::true_type>;
+    static const bool value = std::is_same<decltype(evaluate<T>(0)), std::true_type>::value;
   }; 
   template <size_t N> struct IsArray<JSON [N]> {
     static const bool value = true;
@@ -228,10 +238,10 @@ namespace minidata_json_impl {
     template <typename U> using v_type = decltype(std::declval<value_type<U>>().second);
     template <typename U> static std::true_type  evaluate(int,
                                                           typename std::enable_if<IsString<k_type<U>>::value>* = 0,
-                                                          typename std::enable_if<std::is_convertible_v<v_type<U>, JSON>>::type* = 0);
+                                                          typename std::enable_if<std::is_convertible<v_type<U>, JSON>::value>::type* = 0);
     template <typename U> static std::false_type evaluate(...);
 
-    static const bool value = std::is_same_v<decltype(evaluate<T>(0)), std::true_type>;
+    static const bool value = std::is_same<decltype(evaluate<T>(0)), std::true_type>::value;
   };
 
   template <typename T> struct TagFor {
@@ -251,7 +261,7 @@ namespace minidata_json_impl {
   };
 
   template <typename T> struct IsJSONConvertible {
-    static const bool value = !std::is_same_v<typename TagFor<T>::type, void>;
+    static const bool value = !std::is_same<typename TagFor<T>::type, void>::value;
   };
 }
 
