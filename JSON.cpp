@@ -770,6 +770,7 @@ namespace {
         vector<JSON> elems;
 
         /* Edge case: This could be an empty array. */
+        input >> ws;
         if (peekChar(input) == ']') {
             readChar(input); // Consume ']'
             return JSON(elems);
@@ -794,6 +795,7 @@ namespace {
         unordered_map<string, JSON> elems;
 
         /* Edge case: This could be an empty object. */
+        input >> ws;
         if (peekChar(input) == '}') {
             readChar(input); // Consume '}'
             return JSON(elems);
