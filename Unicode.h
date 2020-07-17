@@ -21,6 +21,12 @@ char32_t peekChar(std::istream& source);
 /* Given a Unicode character in UTF-32, returns a UTF-8 representation of that character. */
 std::string toUTF8(char32_t ch);
 
+/* Given a string representing a single UTF-8 character, returns a char32_t representation
+ * of that character. If the string does not represent a single UTF-8 character, throws
+ * a UTFException.
+ */
+char32_t fromUTF8(const std::string& ch);
+
 /* Given a Unicode character in UTF-32, returns a string representing a series of UTF-16 
  * escape sequences for that character. This string will either have the format
  * \uXXXX (for characters that don't need surrogates) or \uXXXX\uXXXX (for characters that

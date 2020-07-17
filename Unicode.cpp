@@ -245,6 +245,15 @@ string toUTF8(char32_t charCode) {
     return result.str();
 }
 
+char32_t fromUTF8(const string& str) {
+    istringstream input(str);
+    char32_t result = readChar(input);
+  
+    if (input.get() != EOF) throw UTFException("Unexpected bytes found in fromUTF8.");
+  
+    return result;
+}
+
 UTFException::UTFException(const string& message) : logic_error(message) {
 
 }
