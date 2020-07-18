@@ -835,6 +835,19 @@ JSON JSON::parse(istream& input) {
     return result;
 }
 
+/* Stream extraction hooks into the main parsing routine. */
+istream& operator>> (istream& in, JSON& j) {
+    if (istream::sentry(in)) {
+        try {
+            auto result = readElement(in);
+            j = std::move(result);
+        } catch (const JSONException& e) {
+            in.setstate(ios::failbit);
+        }
+    }
+    return in;
+}
+
 /***************************************************************************/
 /***********         Implementation of exception types           ***********/
 /***************************************************************************/

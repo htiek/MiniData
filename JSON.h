@@ -44,7 +44,10 @@ public:
       typename = typename std::enable_if<minidata_json_impl::IsJSONConvertible<T>::value>::type
     > JSON(const T& value);
 
-    /* Parses a piece of text into JSON format. */
+    /* Parses a piece of text into JSON format. The expectation is that the input
+     * consists of the full JSON and nothing else. To read just one JSON object
+     * from a stream, use operator>>.
+     */
     static JSON parse(std::istream& input);
     static JSON parse(const std::string& input);
 
@@ -118,6 +121,7 @@ public:
     const_iterator cend()   const;
     
     friend std::ostream& operator<< (std::ostream& out, JSON json);
+    friend std::istream& operator>> (std::istream& in,  JSON& json);
 
 private:
     friend class BaseJSON;
