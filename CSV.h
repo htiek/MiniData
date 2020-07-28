@@ -245,3 +245,4 @@ inline std::string CSV::RowRef::operator[] (const std::string& colHeader) const 
 inline CSVException::CSVException(const std::string& message) : std::logic_error(message) {
     // Handled in initialization list
 }
+
