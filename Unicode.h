@@ -4,6 +4,8 @@
 #include <ostream>
 #include <stdexcept>
 #include <string>
+#include <sstream>
+#include <iterator>
 
 /* Given a stream encoded in UTF-8, extracts one character from the stream. If the stream is
  * doesn't contain a proper encoding of a character - including if it's at EOF - this reports
@@ -46,6 +48,25 @@ public:
     inline UTFException(const std::string& message);
 };
 
+/* Wrapper type supporting iteration over the characters in a string. This
+ * allows you to say something like
+ *
+ *     for (char32_t ch: utf8Reader(str)) {
+ *          ...
+ *     }
+ */
+class utf8Reader {
+public:
+    explicit utf8Reader(const std::string& str) : in(str) {}
+
+    class const_iterator;
+    const_iterator begin();
+    const_iterator end();
+
+private:
+    std::istringstream in;
+    friend class const_iterator;
+};
 
 
 
@@ -315,4 +336,65 @@ inline char32_t fromUTF8(const std::string& str) {
 
 inline UTFException::UTFException(const std::string& message) : std::logic_error(message) {
 
+}
+
+class utf8Reader::const_iterator: public std::iterator<std::input_iterator_tag, const char32_t> {
+public:
+    const_iterator() = default;
+
+    /* We're only equal if we're end-of-range iterators or if both of us are at the end. */
+    bool operator== (const_iterator rhs) const {
+        bool us   =     !owner ||     done;
+        bool them = !rhs.owner || rhs.done;
+
+        return us == them;
+    }
+    bool operator!= (const_iterator rhs) const {
+        return !(*this == rhs);
+    }
+
+    reference operator* () const {
+        return staged;
+    }
+
+    const_iterator& operator++() {
+        read();
+        return *this;
+    }
+
+    const_iterator operator++(int) {
+        auto result = *this;
+        ++*this;
+        return result;
+    }
+
+private:
+    const_iterator(utf8Reader* source) : owner(source) {
+        if (owner) {
+            read();
+        } else {
+            done = true;
+        }
+    }
+
+    void read() {
+        if (owner->in.peek() != EOF) {
+            staged = readChar(owner->in);
+        } else {
+            done = true;
+        }
+    }
+
+    friend class utf8Reader;
+    utf8Reader* owner = nullptr;
+    char32_t staged;
+    bool done = false;
+};
+
+inline utf8Reader::const_iterator utf8Reader::begin() {
+    return const_iterator(this);
+}
+
+inline utf8Reader::const_iterator utf8Reader::end() {
+    return const_iterator();
 }
