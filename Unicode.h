@@ -1,4 +1,5 @@
-#pragma once
+#ifndef MiniData_Unicode_Included
+#define MiniData_Unicode_Included
 
 #include <istream>
 #include <ostream>
@@ -398,3 +399,5 @@ inline utf8Reader::const_iterator utf8Reader::begin() {
 inline utf8Reader::const_iterator utf8Reader::end() {
     return const_iterator();
 }
+
+#endif

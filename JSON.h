@@ -1,5 +1,5 @@
-#ifndef JSON_Included
-#define JSON_Included
+#ifndef MiniData_JSON_Included
+#define MiniData_JSON_Included
 
 #include <memory>
 #include <istream>

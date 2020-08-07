@@ -1,4 +1,5 @@
-#pragma once
+#ifndef MiniData_CSV_Included
+#define MiniData_CSV_Included
 
 #include <vector>
 #include <unordered_map>
@@ -246,3 +247,4 @@ inline CSVException::CSVException(const std::string& message) : std::logic_error
     // Handled in initialization list
 }
 
+#endif
