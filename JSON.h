@@ -244,8 +244,8 @@ namespace MiniData_JSONImpl {
     template <typename U> using k_type   = decltype(std::declval<value_type<U>>().first);
     template <typename U> using v_type = decltype(std::declval<value_type<U>>().second);
     template <typename U> static std::true_type  evaluate(int,
-                                                          typename std::enable_if<IsString<k_type<U>>::value>* = 0,
-                                                          typename std::enable_if<std::is_convertible<v_type<U>, JSON>::value>::type* = 0);
+                                                          typename std::enable_if<IsString<k_type<U>>::value>* = nullptr,
+                                                          typename std::enable_if<std::is_convertible<v_type<U>, JSON>::value>::type* = nullptr);
     template <typename U> static std::false_type evaluate(...);
 
     static const bool value = std::is_same<decltype(evaluate<T>(0)), std::true_type>::value;
@@ -676,7 +676,7 @@ inline JSON::JSON(std::shared_ptr<MiniData_JSONImpl::BaseJSON> impl, Constructor
 inline JSON::Type JSON::type() const {
     return mImpl->type();
 }
-inline nullptr_t JSON::asNull() const {
+inline std::nullptr_t JSON::asNull() const {
     return MiniData_JSONImpl::as<MiniData_JSONImpl::NullJSON>(mImpl)->value();
 }
 inline bool JSON::asBoolean() const {
@@ -850,7 +850,7 @@ namespace MiniData_JSONImpl {
     inline JSON readNumber(std::istream& input);
     inline std::string readString(std::istream& input);
 
-    inline nullptr_t readNull(std::istream& input) {
+    inline std::nullptr_t readNull(std::istream& input) {
         expect(input, "null");
         return nullptr;
     }
