@@ -5,7 +5,7 @@
 #include <istream>
 #include <ostream>
 #include <vector>
-#include <unordered_map>
+#include <map>
 #include <cstdint>
 #include <stdexcept>
 #include <type_traits>
@@ -144,7 +144,7 @@ private:
     inline static std::shared_ptr<MiniData_JSONImpl::BaseJSON> fromArray(const std::vector<JSON>& elems);
 
     /* Constructs a JSON object from a map. */
-    inline static std::shared_ptr<MiniData_JSONImpl::BaseJSON> fromMap(const std::unordered_map<std::string, JSON>& elems);
+    inline static std::shared_ptr<MiniData_JSONImpl::BaseJSON> fromMap(const std::map<std::string, JSON>& elems);
 
     /* Dispatching constructors. */
     template <typename T> JSON(MiniData_JSONImpl::NullTag,    const T& value) : mImpl(fromNull(value)) {}
@@ -155,7 +155,7 @@ private:
     template <typename T> JSON(MiniData_JSONImpl::ArrayTag,   const T& value) : 
       mImpl(fromArray(std::vector<JSON>(std::begin(value), std::end(value)))) {}
     template <typename T> JSON(MiniData_JSONImpl::MapTag,     const T& value) : 
-      mImpl(fromMap(std::unordered_map<std::string, JSON>(std::begin(value), std::end(value)))) {}
+      mImpl(fromMap(std::map<std::string, JSON>(std::begin(value), std::end(value)))) {}
 };
 
 class JSON::const_iterator {
@@ -283,7 +283,7 @@ template <typename... T> JSON JSON::array(const T&... args) {
 }
 
 #include "Unicode.h"
-#include <unordered_map>
+#include <map>
 #include <vector>
 #include <sstream>
 #include <typeinfo>
@@ -423,7 +423,7 @@ namespace MiniData_JSONImpl {
     /* Type representing an object. */
     class ObjectJSON: public IterableJSON {
     public:
-        inline ObjectJSON(const std::unordered_map<std::string, JSON>& elems);
+        inline ObjectJSON(const std::map<std::string, JSON>& elems);
 
         inline bool contains(const std::string& key) const;
         inline JSON operator[] (const std::string& key) const;
@@ -433,7 +433,7 @@ namespace MiniData_JSONImpl {
         inline std::shared_ptr<JSONSource> source() const override;
 
     private:
-        std::unordered_map<std::string, JSON> mElems;
+        std::map<std::string, JSON> mElems;
     };
 
 /***************************************************************************/
@@ -584,7 +584,7 @@ namespace MiniData_JSONImpl {
         out << ']';
     }
 
-    inline ObjectJSON::ObjectJSON(const std::unordered_map<std::string, JSON>& elems) : IterableJSON(JSON::Type::OBJECT), mElems(elems) {
+    inline ObjectJSON::ObjectJSON(const std::map<std::string, JSON>& elems) : IterableJSON(JSON::Type::OBJECT), mElems(elems) {
 
     }
 
@@ -621,8 +621,8 @@ namespace MiniData_JSONImpl {
          */
         class MapJSONSource: public JSONSource {
         public:
-            MapJSONSource(std::unordered_map<std::string, JSON>::const_iterator curr,
-                          std::unordered_map<std::string, JSON>::const_iterator end)
+            MapJSONSource(std::map<std::string, JSON>::const_iterator curr,
+                          std::map<std::string, JSON>::const_iterator end)
               : mCurr(curr), mEnd(end), mStaged(nullptr) {
                 if (mCurr != mEnd) {
                     mStaged = JSON(mCurr->first);
@@ -644,7 +644,7 @@ namespace MiniData_JSONImpl {
             }
         
         private:
-            std::unordered_map<std::string, JSON>::const_iterator mCurr, mEnd;
+            std::map<std::string, JSON>::const_iterator mCurr, mEnd;
             JSON mStaged;
         };
         
@@ -738,7 +738,7 @@ inline std::shared_ptr<MiniData_JSONImpl::BaseJSON> JSON::fromString(const std::
 inline std::shared_ptr<MiniData_JSONImpl::BaseJSON> JSON::fromArray(const std::vector<JSON>& elems) {
   return std::make_shared<MiniData_JSONImpl::ArrayJSON>(elems);
 }
-inline std::shared_ptr<MiniData_JSONImpl::BaseJSON> JSON::fromMap(const std::unordered_map<std::string, JSON>& elems) {
+inline std::shared_ptr<MiniData_JSONImpl::BaseJSON> JSON::fromMap(const std::map<std::string, JSON>& elems) {
   return std::make_shared<MiniData_JSONImpl::ObjectJSON>(elems);
 }
 
@@ -746,7 +746,7 @@ inline JSON JSON::array(std::initializer_list<JSON> elems) {
   return JSON(std::vector<JSON>(elems));
 }
 inline JSON JSON::object(std::initializer_list<std::pair<const std::string, JSON>> elems) {
-  return JSON(std::unordered_map<std::string, JSON>(elems));
+  return JSON(std::map<std::string, JSON>(elems));
 }
 
 /***************************************************************************/
@@ -1032,7 +1032,7 @@ namespace MiniData_JSONImpl {
         }
     }
 
-    using Member = std::unordered_map<std::string, JSON>::value_type;
+    using Member = std::map<std::string, JSON>::value_type;
     inline Member readMember(std::istream& input) {
         input >> std::ws;
         auto key = readString(input);
@@ -1073,7 +1073,7 @@ namespace MiniData_JSONImpl {
     inline JSON readObject(std::istream& input) {
         expect(input, '{');
 
-        std::unordered_map<std::string, JSON> elems;
+        std::map<std::string, JSON> elems;
 
         /* Edge case: This could be an empty object. */
         input >> std::ws;
