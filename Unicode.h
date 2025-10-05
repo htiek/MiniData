@@ -7,6 +7,7 @@
 #include <string>
 #include <sstream>
 #include <iterator>
+#include <cstdint>
 
 /* Given a stream encoded in UTF-8, extracts one character from the stream. If the stream is
  * doesn't contain a proper encoding of a character - including if it's at EOF - this reports
